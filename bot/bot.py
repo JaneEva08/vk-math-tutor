@@ -25,5 +25,5 @@ def create_bot(settings: Settings) -> Bot:
     )
     bot = Bot(token=settings.vk_token)
     bot.labeler.message()(handlers.on_message)
-    logger.info("Бот инициализирован, модель=%s", settings.gemini_model)
+    logger.info("Бот инициализирован, модель=%s", settings.openai_model)
     return bot

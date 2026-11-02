@@ -15,8 +15,13 @@ def _btn(label: str, cmd: str, arg: str | None = None) -> Text:
     return Text(label[:40], payload)
 
 
-def main_menu() -> str:
-    kb = Keyboard(one_time=False, inline=False)
+def main_menu(*, inline: bool = False) -> str:
+    kb = Keyboard(one_time=False, inline=inline)
+    kb.add(_btn("📚 Новая тема", "topic"), KeyboardButtonColor.PRIMARY)
+    kb.add(_btn("✍️ Тест по теме", "test"))
+    kb.row()
+    kb.add(_btn("💡 Объясни проще", "simpler"))
+    kb.row()
     kb.add(_btn("➕ Новый диалог", "new"), KeyboardButtonColor.POSITIVE)
     kb.add(_btn("📋 Список диалогов", "list"))
     kb.row()
@@ -64,6 +69,8 @@ def mode_list(current_mode_id: str) -> str:
 
 def settings_menu() -> str:
     kb = Keyboard(one_time=False, inline=False)
+    kb.add(_btn("🎓 Изменить класс", "grade"))
+    kb.row()
     kb.add(_btn("🎭 Выбрать режим", "modes"))
     kb.row()
     kb.add(_btn("🧹 Очистить историю", "clear"), KeyboardButtonColor.NEGATIVE)

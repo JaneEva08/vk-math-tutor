@@ -1,10 +1,9 @@
-"""Работа с LLM: провайдер Gemini через ProxyAPI и централизованный AIService."""
+"""Сервис ответов модели и восстановление после сетевых ошибок."""
 
 import logging
 from abc import ABC, abstractmethod
 
-from google import genai
-from google.genai import types
+from services.openai_provider import OpenAIProvider
 
 from config.settings import Settings
 from models.user_data import ChatMessage
@@ -27,41 +26,13 @@ class AIProvider(ABC):
     async def generate(self, system_prompt: str, history: list[ChatMessage], user_message: str) -> str: ...
 
 
-class GeminiProvider(AIProvider):
-    def __init__(self, api_key: str, model: str, base_url: str) -> None:
-        self.model = model
-        self._client = genai.Client(api_key=api_key, http_options=types.HttpOptions(base_url=base_url))
-
-    async def generate(self, system_prompt: str, history: list[ChatMessage], user_message: str) -> str:
-        contents = [
-            types.Content(
-                role="model" if m.role == "assistant" else "user",
-                parts=[types.Part(text=m.content)],
-            )
-            for m in history
-        ]
-        contents.append(types.Content(role="user", parts=[types.Part(text=user_message)]))
-        try:
-            response = await self._client.aio.models.generate_content(
-                model=self.model,
-                contents=contents,
-                config=types.GenerateContentConfig(system_instruction=system_prompt),
-            )
-        except Exception as exc:  # сеть, лимиты, ошибки API
-            raise AIError(str(exc)) from exc
-        text = (response.text or "").strip()
-        if not text:
-            raise AIError("Пустой ответ модели")
-        return text
-
-
 class AIService:
     def __init__(self, provider: AIProvider) -> None:
         self._provider = provider
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "AIService":
-        return cls(GeminiProvider(settings.proxy_api_key, settings.gemini_model, settings.gemini_base_url))
+        return cls(OpenAIProvider(settings.openai_api_key, settings.openai_model, settings.openai_base_url))
 
     @property
     def model_name(self) -> str:
@@ -72,5 +43,5 @@ class AIService:
         try:
             return await self._provider.generate(system_prompt, history, user_message), True
         except AIError:
-            logger.exception("Ошибка запроса к LLM")
+            logger.warning("Ошибка запроса к LLM")
             return FALLBACK_REPLY, False

@@ -13,6 +13,7 @@ from keyboards import menus
 from models.user_data import UserData
 from services.ai_service import AIService
 from services.dialog_service import DialogError, DialogService
+from services.tutor_service import prepare_topic, study_context
 from storage.json_storage import JsonStorage
 from storage.memory_manager import MemoryManager
 from utils.text import split_message, strip_markdown
@@ -51,7 +52,7 @@ class BotHandlers:
                 await message.answer(f"⚠️ {exc}")
                 return
             except Exception:
-                logger.exception("Ошибка обработки сообщения от %s", user_id)
+                logger.error("Ошибка обработки сообщения: user_id=%s", user_id)
                 await message.answer(T.ERROR)
                 return
             if changed:
@@ -97,7 +98,7 @@ class BotHandlers:
         if cmd == "start":
             await message.answer(T.START, keyboard=menus.main_menu())
         elif cmd == "menu":
-            await message.answer(T.MENU, keyboard=menus.main_menu())
+            await message.answer(T.MENU, keyboard=menus.main_menu(inline=True))
         elif cmd == "help":
             await message.answer(T.HELP, keyboard=menus.main_menu())
         elif cmd == "new":
@@ -147,6 +148,25 @@ class BotHandlers:
             self._memory.clear(dialog)
             await message.answer(T.HISTORY_CLEARED.format(title=dialog.title), keyboard=menus.main_menu())
             return True
+        elif cmd == "topic":
+            self._memory.clear(dialog)
+            dialog.study.clear()
+            dialog.mode_id = "math"
+            await message.answer("Какую новую тему разберём? Напиши её название.", keyboard=menus.main_menu())
+            return True
+        elif cmd == "grade":
+            user.settings.pop("grade", None)
+            self._memory.clear(dialog)
+            dialog.study.clear()
+            dialog.mode_id = "math"
+            await message.answer("В каком ты классе? Напиши число от 1 до 11.")
+            return True
+        elif cmd in {"test", "simpler"}:
+            if dialog.mode_id != "math" or not dialog.study.get("topic"):
+                await message.answer("Сначала выбери режим репетитора и напиши класс и тему.")
+                return False
+            request = "Давай короткий тест по теме, по одному вопросу." if cmd == "test" else "Объясни текущий шаг проще, на другом примере."
+            return await self._chat(message, user, request)
         else:
             await message.answer(T.MENU, keyboard=menus.main_menu())
         return False
@@ -163,6 +183,12 @@ class BotHandlers:
     async def _chat(self, message: Message, user: UserData, text: str) -> bool:
         dialog = user.active_dialog
         system_prompt = get_mode(dialog.mode_id).system_prompt
+        if dialog.mode_id == "math":
+            question = prepare_topic(user, text)
+            if question:
+                await message.answer(question, keyboard=menus.main_menu())
+                return True
+            system_prompt += study_context(user)
         history = self._memory.context(dialog)
 
         async with TypingIndicator(message.ctx_api, message.peer_id):
@@ -172,9 +198,13 @@ class BotHandlers:
         if ok:
             self._memory.add(dialog, "user", text)
             self._memory.add(dialog, "assistant", answer)
+            if dialog.mode_id == "math":
+                from datetime import datetime, timezone
+                dialog.study["last_activity"] = datetime.now(timezone.utc).isoformat()
+                dialog.study["exchanges"] = dialog.study.get("exchanges", 0) + 1
 
         chunks = split_message(answer, self._settings.max_message_length)
         for i, chunk in enumerate(chunks):
             last = i == len(chunks) - 1
             await message.answer(chunk, keyboard=menus.chat_actions() if last else None)
-        return ok
+        return ok or dialog.mode_id == "math"

@@ -34,6 +34,7 @@ class FakeMessage:
         self.from_id = user_id
         self.peer_id = user_id
         self.sent = []
+        self.keyboards = []
         activity = SimpleNamespace(set_activity=self._noop)
         self.ctx_api = SimpleNamespace(messages=activity)
 
@@ -43,11 +44,12 @@ class FakeMessage:
 
     async def answer(self, text, keyboard=None):
         self.sent.append(text)
+        self.keyboards.append(keyboard)
 
 
 @pytest.fixture
 def env(tmp_path):
-    settings = Settings(vk_token="t", proxy_api_key="k", users_dir=tmp_path, max_message_length=100)
+    settings = Settings(vk_token="t", openai_api_key="k", users_dir=tmp_path, max_message_length=100)
     provider = FakeProvider()
     storage = JsonStorage(tmp_path)
     handlers = BotHandlers(settings, storage, DialogService(), MemoryManager(100), AIService(provider))
@@ -69,7 +71,7 @@ def test_dialog_service_rules():
     second = svc.create(user)
     assert user.active_dialog_id == second.id
     svc.set_mode(user, "teacher")
-    assert second.mode_id == "teacher" and user.dialogs[0].mode_id == "assistant"
+    assert second.mode_id == "teacher" and user.dialogs[0].mode_id == "math"
     svc.delete(user, second.id)
     assert len(user.dialogs) == 1 and user.active_dialog_id == user.dialogs[0].id
     with pytest.raises(DialogError):
@@ -89,6 +91,7 @@ async def test_ai_service_fallback():
 
 async def test_chat_flow_persists_context_and_modes(env):
     h = env.handlers
+    await h.on_message(FakeMessage(payload={"cmd": "set_mode", "id": "assistant"}))
     m1 = FakeMessage("привет")
     await h.on_message(m1)
     assert m1.sent == ["ответ на привет"]  # markdown убран
@@ -105,8 +108,10 @@ async def test_chat_flow_persists_context_and_modes(env):
 
 async def test_dialogs_are_isolated_and_rename(env):
     h = env.handlers
+    await h.on_message(FakeMessage(payload={"cmd": "set_mode", "id": "assistant"}))
     await h.on_message(FakeMessage("первый"))
     await h.on_message(FakeMessage(payload={"cmd": "new"}))
+    await h.on_message(FakeMessage(payload={"cmd": "set_mode", "id": "assistant"}))
     await h.on_message(FakeMessage("второй"))
     assert env.provider.calls[-1][1] == []  # контекст не переносится
 
@@ -129,8 +134,18 @@ async def test_validation_and_delete_last(env):
 
 
 async def test_failed_ai_does_not_pollute_history(env):
+    await env.handlers.on_message(FakeMessage(payload={"cmd": "set_mode", "id": "assistant"}))
     env.provider.fail = True
     m = FakeMessage("привет")
     await env.handlers.on_message(m)
     assert m.sent == [FALLBACK_REPLY]
     assert (await env.storage.load(1)).active_dialog.messages == []
+
+
+async def test_menu_return_shows_dialog_list_inline(env):
+    message = FakeMessage(payload={"cmd": "menu"})
+    await env.handlers.on_message(message)
+    keyboard = json.loads(message.keyboards[-1])
+    assert keyboard["inline"] is True
+    commands = [b["action"]["payload"]["cmd"] for row in keyboard["buttons"] for b in row]
+    assert "list" in commands and "new" in commands

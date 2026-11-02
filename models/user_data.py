@@ -34,6 +34,7 @@ class Dialog:
     mode_id: str = DEFAULT_MODE_ID
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     messages: list[ChatMessage] = field(default_factory=list)
+    study: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -41,6 +42,7 @@ class Dialog:
             "title": self.title,
             "mode_id": self.mode_id,
             "messages": [m.to_dict() for m in self.messages],
+            "study": self.study,
         }
 
     @classmethod
@@ -50,6 +52,7 @@ class Dialog:
             mode_id=data.get("mode_id", DEFAULT_MODE_ID),
             id=data["id"],
             messages=[ChatMessage.from_dict(m) for m in data.get("messages", [])],
+            study=data.get("study", {}),
         )
 
 

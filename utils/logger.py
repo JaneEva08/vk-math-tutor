@@ -4,6 +4,8 @@ from pathlib import Path
 
 
 def setup_logger(level: str = "INFO") -> logging.Logger:
+    for name in ("httpx", "httpx2", "httpcore", "openai", "vkbottle"):
+        logging.getLogger(name).setLevel(logging.WARNING)
     root = logging.getLogger()
     root.setLevel(level)
     if root.handlers:
